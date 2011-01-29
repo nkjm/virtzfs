@@ -1,0 +1,1262 @@
+#!/usr/bin/python
+
+import commands
+import copy
+import optparse
+import os
+import shutil
+import socket
+import string
+import sys
+import tempfile
+import random
+import re
+import time
+
+from config import *
+from utility import Utility
+from repository import Repository
+from server_pool import Server_pool
+from shareddisk import Shareddisk
+from domain import Template
+from domain import Vm
+
+### Config
+version = "2.0a1"
+usage = "\n  %prog ACTION TARGET [options]\n\nACTIONs and Targets:\n  init repository\n  show nfs\n  list template\n  import template (optional: [TEMPLATE_DIRECTORY])\n  update template -t [TEMPLATE_NAME]\n  delete template -t [TEMPLATE_NAME]\n  list vm\n  create vm -t [TEMPLATE_NAME] (optional:-i [NUMBER_OF_VM]) -n [VM_NAME]\n  list snapshot -v [VM_NAME]\n  snapshot vm (optional:-n [SNAPSHOT_NAME]) -v [VM_NAME]\n  rollback vm (optional:-s [SNAPSHOT_NAME]) -v [VM_NAME]\n  delete vm -v [VM_NAME]\n  create shareddisk -l [DISK_SIZE] -n [DISK_NAME]\n  delete shareddisk -d [DISK_NAME]\n  attach shareddisk -d [DISK_NAME] -v [VM_NAME]\n  detach shareddisk -d [DISK_NAME] -v [VM_NAME]"
+shareddisk_frontend_list = ["xvdc","xvdd","xvde","xvdf","xvdg","xvdh","xvdi","xvdj","xvdk","xvdl","xvdm","xvdn","xvdo","xvdp","xvdq","xvdr","xvds","xvdt","xvdu","xvdv","xvdw","xvdx","xvdy","xvdz"]
+#shareddisk_frontend_list = ["sda","sdb","sdc","sdd","sde","sdf","sdg","sdh","sdi","sdj","sdk","sdl","sdm","sdn","sdo","sdp","sdq","sdr","sds","sdt","sdu","sdv","sdw","sdx","sdy","sdz"]
+
+### Main
+
+class Virtzfs:
+    def __init__(self):
+        pass
+
+    def run(self, args):
+        p = optparse.OptionParser(usage=usage, version=version)
+        p.add_option("-d", "--shareddisk", action="store", type="string", dest="shareddisk_name", help="Name of Shared Disk")
+        p.add_option("-f", "--shareddisk_frontend", action="store", type="string", dest="shareddisk_frontend_name", help="Name of Shared Disk Frontend")
+        p.add_option("-i", "--number", action="store", type="string", dest="number_of_vm", help="Number of VM to be created")
+        p.add_option("-l", "--size", action="store", type="string", dest="size", help="size of disk(in GByte)")
+        p.add_option("-n", "--name", action="store", type="string", dest="name", help="NEW NAME of the object to be created")
+        p.add_option("-s", "--snapshot", action="store", type="string", dest="snapshot_name", help="Name of Snapshot")
+        p.add_option("-t", "--template", action="store", type="string", dest="template_name", help="Name of Template")
+        p.add_option("-v", "--vm", action="store", type="string", dest="vm_name", help="Name of VM")
+        (opts, args) = p.parse_args()
+        
+        if len(args) < 2:
+            print "At least, 2 arguments must be given. Try -h or --help."
+            sys.exit()
+        
+        action = args[0]
+        target = args[1]
+
+        ### Create Class
+        global utility
+        global repository
+        global server_pool
+        utility = Utility()
+        repository = Repository()
+        server_pool = Server_pool()
+        
+        if not repository.exist():
+            print "There is no Repository on ZFS at present. Repository can be created automatically."
+            print "New Repository is going to be created. This operation does not consume disk space at this moment. OK ? [y/n]: ",
+            utility.ask_yes_or_no()
+            res = server_pool.set_iqn_list()
+            if not res == 0:
+                print "Cannot get iSCSI Client IQN. Check if iscsi-initiator-utils has been installed."
+                sys.exit()
+            repository.initialize(server_pool.iqn_list)
+        
+        ### Select action and target
+        if target == "nfs":
+            if action == "show":
+                print "\t%s:/%s" % (socket.gethostname(), repository.path_domain)
+                print ""
+
+        if target == "repository":
+            if action == "init":
+                print "Going to initialize Repository. This does not overwrite existing data & configuration. OK ? [y/n]: ",
+                utility.ask_yes_or_no()
+                res = server_pool.set_iqn_list()
+                if not res == 0:
+                    print "Cannot get iSCSI Client IQN. Check if iscsi-initiator-utils has been installed."
+                    sys.exit()
+                repository.initialize(server_pool.iqn_list)
+                print ""
+
+        if target == "template":
+            if action == "list":
+                repository.set_template_list()
+                for template in repository.template_list:
+                    print "\t%s" % template
+                print ""
+
+            elif action == "import":
+                if (len(args) < 3) or (args[2] is None):
+                    try:
+                        template_directory = utility.interview(question="TEMPLATE DIRECTORY", choice_list=None, default=None)
+                    except:
+                        return(1)
+                else:
+                    template_directory = args[2]
+                template_directory = template_directory.rstrip('/')
+
+                # check if template directory exists
+                while True:
+                    try:
+                        os.stat('%s/' % template_directory)
+                        break
+                    except:
+                        print "Spedified TEMPLATE_DIRECTORY does not exist. Please enter another directory."
+                        try:
+                            template_directory = utility.interview(question="TEMPLATE DIRECTORY", choice_list=None, default=None)
+                            template_directory = template_directory.rstrip("/")
+                        except:
+                            return(1)
+
+                # check if template directory contain vm config file
+                try:
+                    os.stat("%s/vm.cfg" % template_directory)
+                except:
+                    print "TEMPLATE DIRECTORY does not contain domain configuration file 'vm.cfg'. TEMPLATE DIRECTORY has to contain vm.cfg and virtual disk image."
+                    return(1)
+
+                repository.set_template_list()
+                default_template_name = os.path.basename(template_directory)
+                existing_template_n_vm_list = repository.template_list + repository.vm_list
+                template_name = utility.get_new_name(question="NEW TEMPLATE NAME", choice_list=existing_template_n_vm_list, input=opts.name, default=default_template_name)
+                # create template instance
+                template = Template(template_name)
+
+                # import vm configuration file 
+                print "Creating domain configuration directory: '/%s/%s'... " % (repository.path_domain, template.name),
+                cmd = "mkdir /%s/%s > /dev/null 2>&1" % (repository.path_domain, template.name)
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    return(1)
+                print "Copying domain configuration file... ",
+                cmd = "cp %s/vm.cfg /%s/%s/vm_cfg.py > /dev/null 2>&1" % (template_directory, repository.path_domain, template.name)
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+
+                # extract vm config
+                template.extract_vm_cfg("/%s/%s/vm_cfg.py" % (repository.path_domain, template.name))
+
+                # Create parent filesystem
+                print "Creating parent filesystem: '%s'... " % template.zfs_path,
+                cmd = "pfexec /usr/sbin/zfs create %s > /dev/null 2>&1" % template.zfs_path
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+
+                # import image files and setup template.volume_list[]
+                offset = 0
+                print "Start importing volumes. This may take a certain amount of time."
+                for each_disk in template.volume_list:
+                    # Get file size
+                    img_location = template_directory + "/" + os.path.basename(each_disk["backend"])
+                    cmd = "ls -l %s | awk '{print $5}'" % img_location
+                    filesize = commands.getoutput(cmd)
+                    each_disk["size"] = int(filesize) / 1024 / 1024 / 1024 + 1
+
+                    print "  Creating zvol: '%s/%s'... " % (template.zfs_path, each_disk["frontend"]),
+                    cmd = "pfexec /usr/sbin/zfs create -V %sG -s %s/%s" % (each_disk["size"], template.zfs_path, each_disk["frontend"])
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(template)
+                        return(1)
+
+                    print "  Importing  %s as %s... " % (os.path.basename(each_disk["backend"]), each_disk["frontend"]),
+                    cmd = "dd if=%s of=/dev/zvol/dsk/%s/%s > /dev/null 2>&1" % (img_location, template.zfs_path, each_disk["frontend"])
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(template)
+                        return(1)
+                print ""
+
+                # create target
+                print "  Creating iSCSI Target: '%s'... " % template.targetname,
+                cmd = "pfexec /usr/sbin/itadm create-target -n %s -t %s > /dev/null 2>&1" % (template.targetname, repository.tpg)
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+
+                # create target group
+                print "  Creating iSCSI Target Group: '%s'... " % template.name,
+                cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % template.name
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+
+                # offline target
+                print "  Offline iSCSI Target: '%s'... " % template.targetname,
+                cmd = "pfexec /usr/sbin/stmfadm offline-target %s > /dev/null 2>&1" % template.targetname
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+
+                # add target to target group
+                print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (template.targetname, template.name),
+                cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %s %s > /dev/null 2>&1" % (template.name, template.targetname)
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+
+                # online target
+                print "  Online iSCSI Target: '%s'... " % template.targetname,
+                cmd = "pfexec /usr/sbin/stmfadm online-target %s > /dev/null 2>&1" % template.targetname
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+
+                # create lu
+                for each_disk in template.volume_list:
+                    print "  Creating LU: '%s'... " % each_disk["frontend"],
+                    cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%s/%s > /dev/null 2>&1" % (template.zfs_path, each_disk["frontend"])
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(template)
+                        return(1)
+
+                # add view and map to target group
+                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s | cut -d' ' -f1" % template.zfs_path
+                res = commands.getoutput(cmd)
+                lu_list = res.splitlines() 
+                for lu in lu_list:
+                    print "  Adding View to LU: '%s'... " % lu,
+                    cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (template.name, repository.hg, lu)
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(template)
+                        return(1)
+                print ""
+                
+                # discover new target
+                print "Discovering iSCSI Target... "
+                res = server_pool.discover_iscsi_target()
+                if not res == 0:
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+                print ""
+
+                # login to new target
+                print "Logging in to iSCSI Target: '%s'... " % template.targetname
+                res = server_pool.login_to_iscsi_target(template.targetname)
+                if not res == 0:
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+                print ""
+
+                # prepare new domain config
+                # retrieve device path and set to disk["backend"]
+                for i, each_disk in enumerate(template.volume_list):
+                    lu_source = "/dev/zvol/rdsk/%s/%s" % (template.zfs_path, each_disk["frontend"])
+                    lu_guid = repository.get_guid(lu_source)
+                    lun = repository.get_lun(lu_guid)
+                    template.volume_list[i]["backend"] = template.get_backend(zfs_ip, template.targetname, lun)
+
+                # assign new mac address to each vif
+                for i, each_vif in enumerate(template.network_list):
+                    template.network_list[i]["mac"] = utility.get_new_mac_address()
+
+                # generate new domain configuration file
+                print "Generating new domain configuration file: '/%s/%s/vm_cfg.py'" % (repository.path_domain, template.name),
+                template.generate_new_vm_cfg()
+                try:
+                    f = open("/%s/%s/vm_cfg.py" % (repository.path_domain, template.name),"w")
+                    f.writelines(template.new_vm_cfg)
+                    f.close()
+                    print msg_success
+                except:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+                        
+                # Take snapshot
+                snapshot_name = time.strftime("%Y_%m_%d_%H_%M_%S")
+                print "Taking snapshot of '%s/%s'... " % (template.zfs_path, snapshot_name),
+                res = repository.create_snapshot(template.zfs_path, snapshot_name)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_domain(template)
+                    return(1)
+
+                print "\nTemplate: '%s' has been imported\n" % template.name
+
+            elif action == "update":
+                repository.set_template_list()
+                if len(repository.template_list) == 0:
+                    print "No Template to update."
+                    print ""
+                    sys.exit()
+                template_name = utility.get_name(question="TEMPLATE", choice_list=repository.template_list, input=opts.template_name, default=None)
+                template = Template(template_name)
+                snapshot_name = time.strftime("%Y_%m_%d_%H_%M_%S")
+                res = repository.create_snapshot(template.zfs_path, snapshot_name)
+                if res == 0:
+                    print "\nTemplate has been updated.\n"
+                else:
+                    print "\nFailed to update Template\n"
+
+            elif action == "delete":
+                repository.set_template_list()
+                if len(repository.template_list) == 0:
+                    print "No Template to delete."
+                    print ""
+                    sys.exit()
+                template_name_list = utility.get_name_list(question="TEMPLATE", choice_list=repository.template_list, input=opts.template_name, default=None)
+                print "Going to delete following Template."
+                for template_name in template_name_list:
+                    print "\t" + template_name
+                print ""
+                print "Are you sure ? [y/n]: ",
+                utility.ask_yes_or_no()
+                for template_name in template_name_list:
+                    template = Template(template_name)
+                    self.delete_domain(template)
+
+        elif target == "vm":
+            if action == "list":
+                repository.set_vm_list()
+                for vm in repository.vm_list:
+                    print "\t%s" % vm
+                print ""
+
+            elif action == "create":
+                repository.set_template_list()
+                if len(repository.template_list) == 0:
+                    print "No Template to create VM from. Please import Template first."
+                    print ""
+                    sys.exit()
+                template_name = utility.get_name(question="TEMPLATE NAME", choice_list=repository.template_list, input=opts.template_name, default=None)
+                repository.set_vm_list()
+                vm_name = utility.get_new_name(question="NEW VM NAME", choice_list=repository.vm_list, input=opts.name, default=None)
+                number_of_vm = utility.get_number(question="NUMBER of VM", input=opts.number_of_vm, default="1")
+
+                # Check if specified template exist in repository 
+                if not repository.exist_template(template_name):
+                    print "Specified Template does not exist in ZFS Repository."
+                    return(1)
+
+                template = Template(template_name)
+       
+                create_vm_turn_int = 1 
+                number_of_vm = int(number_of_vm)
+                original_vm_name = vm_name
+
+                created_vm_list = []
+                while (create_vm_turn_int <= number_of_vm):
+                    if (number_of_vm > 1):
+                        create_vm_turn_str = str(create_vm_turn_int)
+                        vm_name = original_vm_name + "-" + create_vm_turn_str
+
+                    vm = Vm(vm_name)
+                    vm.vm_cfg = template.vm_cfg
+                    vm.network_list = template.network_list
+                    
+                    # Check if specified vm does not exist in repository
+                    if repository.exist_vm(vm.name):
+                        if (number_of_vm > 1):
+                            print "%s already exists in ZFS Repository. Move to next." % vm.name
+                            create_vm_turn_int = create_vm_turn_int + 1
+                            number_of_vm = number_of_vm + 1
+                            continue
+                        else:
+                            print "Specified VM already exists in ZFS Repository."
+                            return(1)
+                    
+                    print "Creating %s... \n" % vm.name
+
+                    # create directory for domain configuration file
+                    print "  Creating Domain Configuration Directory: '/%(path_domain)s/%(vm_name)s... " % {"path_domain":repository.path_domain,"vm_name":vm.name}, 
+                    cmd = "pfexec mkdir /%(path_domain)s/%(vm_name)s" % {"path_domain":repository.path_domain,"vm_name":vm.name}
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(vm)
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+
+                    # create parent filesystem
+                    print "  Creating Parent Filesystem: '%s'... " % vm.zfs_path, 
+                    cmd = "pfexec /usr/sbin/zfs create %s" % vm.zfs_path
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(vm)
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+
+                    # clone each volume
+                    for template_volume in template.volume_list:
+                        if not template_volume["permission"] == "w!":
+                            latest_snapshot = template.get_latest_snapshot("%(path_template)s/%(template_name)s/%(volume_name)s" % {
+                                "path_template":repository.path_template, 
+                                "template_name":template.name, 
+                                "volume_name":template_volume["frontend"], 
+                                })
+                            print "  Cloning volume: %s... " % template_volume["frontend"],
+                            cmd = "pfexec /usr/sbin/zfs clone %(path_template)s/%(template_name)s/%(volume_name)s@%(latest_snapshot)s %(path_vm)s/%(vm_name)s/%(volume_name)s" % {
+                                "path_template":repository.path_template, 
+                                "template_name":template.name, 
+                                "volume_name":template_volume["frontend"], 
+                                "latest_snapshot":latest_snapshot, 
+                                "path_vm":repository.path_vm,
+                                "vm_name":vm.name,
+                                }
+                            res = os.system(cmd)
+                            if not (res == 0):
+                                print "Failed to clone volume."
+                                print "Cleaning up... "
+                                self.delete_domain(vm)
+                                for created_vm in created_vm_list:
+                                    self.delete_domain(created_vm)
+                                return(1)
+                            print msg_success
+
+                        vm_volume = {}
+                        vm_volume["backend"] = template_volume["backend"]  # to be overwritten later except shareddisk..
+                        vm_volume["frontend"] = template_volume["frontend"]
+                        vm_volume["permission"] = template_volume["permission"]
+                        vm.volume_list.append(vm_volume)
+                    print ""
+
+                    # create target
+                    print "  Creating iSCSI Target: '%s'... " % vm.targetname,
+                    cmd = "pfexec /usr/sbin/itadm create-target -n %s -t %s > /dev/null 2>&1" % (vm.targetname, repository.tpg)
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(vm)
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+
+                    # create target group
+                    print "  Creating iSCSI Target Group: '%s'... " % vm.name,
+                    cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % vm.name
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(vm)
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+
+                    # offline target
+                    print "  Offline iSCSI Target: '%s'... " % vm.targetname,
+                    cmd = "pfexec /usr/sbin/stmfadm offline-target %s > /dev/null 2>&1" % vm.targetname
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(vm)
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+
+                    # add target to target group
+                    print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (vm.targetname, vm.name),
+                    cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %(vm_name)s %(vm_targetname)s > /dev/null 2>&1" % {"vm_name":vm.name,"vm_targetname":vm.targetname}
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(vm)
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+
+                    # online target
+                    print "  Online iSCSI Target: '%s'... " % vm.targetname,
+                    cmd = "pfexec /usr/sbin/stmfadm online-target %s > /dev/null 2>&1" % vm.targetname
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        self.delete_domain(vm)
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+
+                    # create lu
+                    for volume in vm.volume_list:
+                        if volume["permission"] == "w!":
+                            continue
+                        print "  Creating LU: '%s'... " % volume["frontend"],
+                        cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%(vm_zfs_path)s/%(frontend)s > /dev/null 2>&1" % {"vm_zfs_path":vm.zfs_path,"frontend":volume["frontend"]}
+                        res = os.system(cmd)
+                        if res == 0:
+                            print msg_success
+                        else:
+                            print msg_fail
+                            print "Cleaning up... "
+                            self.delete_domain(vm)
+                            for created_vm in created_vm_list:
+                                self.delete_domain(created_vm)
+                            return(1)
+
+                    # add view and map to target group
+                    cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s | cut -d' ' -f1" % vm.zfs_path
+                    res = commands.getoutput(cmd)
+                    lu_list = res.splitlines() 
+                    for lu in lu_list:
+                        print "  Adding View to LU: '%s'... " % lu,
+                        cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (vm.name, repository.hg, lu)
+                        res = os.system(cmd)
+                        if res == 0:
+                            print msg_success
+                        else:
+                            print msg_fail
+                            print "Cleaning up... "
+                            self.delete_domain(vm)
+                            for created_vm in created_vm_list:
+                                self.delete_domain(created_vm)
+                            return(1)
+                    print ""
+                    
+                    create_vm_turn_int += 1
+                    created_vm_list.append(vm)
+
+                # discover new target
+                print "Discovering iSCSI Target... "
+                res = server_pool.discover_iscsi_target()
+                if not res == 0:
+                    print "Cleaning up... "
+                    for created_vm in created_vm_list:
+                        self.delete_domain(created_vm)
+                    return(1)
+                print ""
+
+                # login to new target
+                for created_vm in created_vm_list:    
+                    print "Logging in to iSCSI Target: '%s'... " % created_vm.targetname
+                    res = server_pool.login_to_iscsi_target(created_vm.targetname)
+                    if not res == 0:
+                        print "Cleaning up... "
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+                    print ""
+                print ""
+
+                # prepare new domain config
+                for created_vm in created_vm_list:    
+                    # retrieve device path and set to disk["backend"]
+                    for i, each_disk in enumerate(created_vm.volume_list):
+                        if each_disk["permission"] == "w!":
+                            continue
+                        lu_source = "/dev/zvol/rdsk/%(created_vm_zfs_path)s/%(frontend)s" % {
+                            "created_vm_zfs_path":created_vm.zfs_path,
+                            "frontend":each_disk["frontend"]
+                        }
+                        lu_guid = repository.get_guid(lu_source)
+                        lun = repository.get_lun(lu_guid)
+                        created_vm.volume_list[i]["backend"] = vm.get_backend(zfs_ip, created_vm.targetname, lun)
+
+                    # assign new mac address to each vif
+                    for i, each_vif in enumerate(created_vm.network_list):
+                        created_vm.network_list[i]["mac"] = utility.get_new_mac_address()
+
+                    # generate new domain configuration file
+                    print "Generating new domain configuration file: '/%s/%s/vm_cfg.py'" % (repository.path_domain, created_vm.name),
+                    created_vm.generate_new_vm_cfg()
+                    try:
+                        f = open("/%s/%s/vm_cfg.py" % (repository.path_domain, created_vm.name),"w")
+                        f.writelines(created_vm.new_vm_cfg)
+                        f.close()
+                        print msg_success
+                    except:
+                        print msg_fail
+                        print "Cleaning up... "
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+                        
+                # snapshot initial state
+                for created_vm in created_vm_list:
+                    print "Taking snapshot of VM: '%s'... " % created_vm.name,
+                    snapshot_name = time.strftime("%Y_%m_%d_%H_%M_%S")
+                    res = repository.create_snapshot(created_vm.zfs_path, snapshot_name)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        print "Cleaning up... "
+                        for created_vm in created_vm_list:
+                            self.delete_domain(created_vm)
+                        return(1)
+                print ""
+
+                for created_vm in created_vm_list:
+                    print "%s has been created." % created_vm.name
+                print ""
+
+            elif action == "snapshot":
+                repository.set_vm_list()
+                if len(repository.vm_list) == 0:
+                    print "No VM to take snapshot."
+                    print ""
+                    sys.exit()
+                vm_name = utility.get_name(question="VM", choice_list=repository.vm_list, input=opts.vm_name, default=None)
+                vm = Vm(vm_name)
+                vm.set_snapshot_list()
+                default_snapshot_name = time.strftime("%Y_%m_%d_%H_%M_%S")
+                snapshot_name = utility.get_new_name(question="NEW SNAPSHOT NAME", choice_list=vm.snapshot_list, input=opts.name, default=default_snapshot_name)
+                res = repository.create_snapshot("%s" % (vm.zfs_path), snapshot_name)
+                if res == 0:
+                    print "\nSnapshot has been taken.\n"
+                else:
+                    print "\nFailed to take snapshot.\n"
+
+            elif action == "rollback":
+                repository.set_vm_list()
+                if len(repository.vm_list) == 0:
+                    print "No VM to rollback."
+                    print ""
+                    sys.exit()
+                vm_name = utility.get_name(question="VM", choice_list=repository.vm_list, input=opts.vm_name, default=None)
+                vm = Vm(vm_name)
+                vm.set_snapshot_list()
+                snapshot_name = opts.snapshot_name # verified later
+                if (snapshot_name is None):
+                    try:
+                        snapshot_name = utility.interview(question="SNAPSHOT NAME", choice_list=vm.snapshot_list, default=None)
+                    except:
+                        return(1)
+                else:
+                    # Check if specified snapshot exists
+                    while True:
+                        cmd = "pfexec /usr/sbin/zfs list -t snapshot %s@%s > /dev/null 2>&1" % (vm.zfs_path, snapshot_name)
+                        res = os.system(cmd)
+                        if not res == 0:
+                            print "Specified Snapshot does not exist."
+                            try:
+                                snapshot_name = utility.interview(question="SNAPSHOT NAME", choice_list=vm.snapshot_list, default=None)
+                            except:
+                                return(1)
+                        else:
+                            break
+
+                # logout from iSCSI Target
+                print "Logging out from iSCSI Target of '%s'... " % vm.name
+                res = server_pool.logout_from_iscsi_target(vm.targetname)
+                if not res == 0:
+                    return(1)
+
+                # delete lu
+                lu_source_needle = "/dev/zvol/rdsk/%s" % vm.zfs_path
+                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
+                res = commands.getoutput(cmd)
+                guid_list = res.splitlines()
+                for guid in guid_list:
+                    print "Deleting LU: '%s'... " % guid,
+                    cmd = "pfexec /usr/sbin/stmfadm delete-lu %s" % guid
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        return(1)
+
+                # rollback parenet filesystem
+                print "Rolling back parenet filesystem... ",
+                res = repository.rollback(vm.zfs_path, snapshot_name)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    return(1)
+
+                # rollback volumes 
+                for volume in vm.volume_list:
+                    print "Rolling back volume: %s... " % volume["frontend"],
+                    res = repository.rollback("%s/%s" % (vm.zfs_path, volume["frontend"]), snapshot_name)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        return(1)
+
+                # create lu
+                for volume in vm.volume_list:
+                    print "Re-creating LUN for '%s'... " % volume["frontend"],
+                    cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%(vm_zfs_path)s/%(frontend)s" % {"vm_zfs_path":vm.zfs_path,"frontend":volume["frontend"]}
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        return(1)
+
+                # add view
+                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s | cut -d' ' -f1" % vm.zfs_path
+                res = commands.getoutput(cmd)
+                lu_list = res.splitlines() 
+                for lu in lu_list:
+                    print "Re-adding view for LU: '%s'... " % lu,
+                    cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s" % (vm.name, repository.hg, lu)
+                    res = os.system(cmd)
+                    if res == 0:
+                        print msg_success
+                    else:
+                        print msg_fail
+                        return(1)
+
+                # login to iSCSI Target
+                print "Re-logging in to iSCSI Target of '%s'... " % vm.name
+                res = server_pool.login_to_iscsi_target(vm.targetname)
+
+                print ""
+                print "Rollback has been completed."
+                print ""
+
+
+            elif action == "delete":
+                repository.set_vm_list()
+                if len(repository.vm_list) == 0:
+                    print "No VM to delete."
+                    print ""
+                    sys.exit()
+                vm_name_list = utility.get_name_list(question="VM", choice_list=repository.vm_list, input=opts.vm_name, default=None)
+                print "Going to delete following VM."
+                for vm_name in vm_name_list:
+                    print "\t" + vm_name
+                print ""
+                print "Are you sure ? [y/n]: ",
+                utility.ask_yes_or_no()
+                for vm_name in vm_name_list:
+                    vm = Vm(vm_name)
+                    self.delete_domain(vm)
+
+        elif target == "snapshot":
+            if action == "list":
+                repository.set_vm_list()
+                vm_name = utility.get_name(question="VM", choice_list=repository.vm_list, input=opts.vm_name, default=None)
+                vm = Vm(vm_name)
+                vm.set_snapshot_list()
+                for snapshot in vm.snapshot_list:
+                    print "\t%s" % snapshot
+                print ""
+
+            elif action == "delete":
+                repository.set_vm_list()
+                if len(repository.vm_list) == 0:
+                    print "No VM to delete snapshot."
+                    print ""
+                    sys.exit()
+                vm_name = utility.get_name(question="VM", choice_list=repository.vm_list, input=opts.vm_name, default=None)
+                vm = Vm(vm_name)
+                vm.set_snapshot_list()
+                snapshot_name = utility.get_name(question="Snapshot", choice_list=vm.snapshot_list, input=opts.snapshot_name, default=None)
+                res = repository.delete_snapshot("%s" % (vm.zfs_path), snapshot_name)
+                if res == 0:
+                    print "\nSnapshot has been deleted.\n"
+                else:
+                    print "\nFailed to delete snapshot.\n"
+                
+        elif target == "shareddisk":
+            if action == "list":
+                repository.set_shareddisk_list()
+                for shareddisk in repository.shareddisk_list:
+                    print "\t%s" % shareddisk
+                print ""
+
+            elif action == "create":
+                repository.set_shareddisk_list()
+                shareddisk_name = utility.get_new_name(question="NEW SHARED DISK NAME", choice_list=repository.shareddisk_list, input=opts.name, default=None)
+                shareddisk_size = utility.get_number(question="SIZE OF NEW SHARED DISK (in Gbytes)", input=opts.size, default=None)
+                shareddisk = Shareddisk(shareddisk_name, shareddisk_size)
+
+                print ""
+                print "Creating SharedDisk: '%s'... " % shareddisk.name
+                # create zvol
+                print "  Creating ZVOL: '%(shareddisk_name)s (%(shareddisk_size)sGByte)'... " % {"shareddisk_name":shareddisk.name,"shareddisk_size":shareddisk.size},
+                cmd = "pfexec /usr/sbin/zfs create -V %(shareddisk_size)sG -s %(path_shareddisk)s/%(shareddisk_name)s > /dev/null 2>&1" % {
+                    "shareddisk_size":shareddisk.size,
+                    "path_shareddisk":repository.path_shareddisk,
+                    "shareddisk_name":shareddisk.name
+                }
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    return(1)
+
+                # create target
+                print "  Creating iSCSI Target: '%s'... " % shareddisk.targetname,
+                cmd = "pfexec /usr/sbin/itadm create-target -n %s -t %s > /dev/null 2>&1" % (shareddisk.targetname, repository.tpg)
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+
+                # create target group
+                print "  Creating iSCSI Target Group: '%s'... " % shareddisk.name_w_prefix,
+                cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % shareddisk.name_w_prefix
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+
+                # offline target
+                print "  Offline iSCSI Target: '%s'... " % shareddisk.targetname,
+                cmd = "pfexec /usr/sbin/stmfadm offline-target %s > /dev/null 2>&1" % shareddisk.targetname
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+
+                # add target to target group
+                print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (shareddisk.targetname, shareddisk.name_w_prefix),
+                cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %s %s > /dev/null 2>&1" % (shareddisk.name_w_prefix, shareddisk.targetname)
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+
+                # online target
+                print "  Online iSCSI Target: '%s'... " % shareddisk.targetname,
+                cmd = "pfexec /usr/sbin/stmfadm online-target %s > /dev/null 2>&1" % shareddisk.targetname
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+
+                # create lu
+                print "  Creating LU: '%s'... " % shareddisk.name,
+                cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%(path_shareddisk)s/%(shareddisk_name)s > /dev/null 2>&1" % {
+                    "path_shareddisk":repository.path_shareddisk,
+                    "shareddisk_name":shareddisk.name
+                }
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+
+                # add view and map to target group
+                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%(path_shareddisk)s/%(shareddisk_name)s | cut -d' ' -f1" % {
+                    "path_shareddisk":repository.path_shareddisk,
+                    "shareddisk_name":shareddisk.name
+                }
+                lu = commands.getoutput(cmd)
+                print "  Adding View to LU: '%s'... " % shareddisk.name,
+                cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (shareddisk.name_w_prefix, repository.hg, lu)
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+                print ""
+                
+                # discover new target
+                print "  Discovering iSCSI Target... "
+                res = server_pool.discover_iscsi_target()
+                if not res == 0:
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+                print ""
+
+                # login to new target
+                print "  Logging in to iSCSI Target: '%s'... " % shareddisk.targetname
+                res = server_pool.login_to_iscsi_target(shareddisk.targetname)
+                if not res == 0:
+                    print "Cleaning up... "
+                    self.delete_shareddisk(shareddisk.name)
+                    return(1)
+                print ""
+                print "SharedDisk: '%s' has been created." % shareddisk.name
+                print ""
+
+            elif action == "attach":
+                # select sharedDisk to attach
+                repository.set_shareddisk_list()
+                if len(repository.shareddisk_list) == 0:
+                    print "No Shared Disk to attach."
+                    print ""
+                    sys.exit()
+                shareddisk_name = utility.get_name(question="SHARED DISK", choice_list=repository.shareddisk_list, input=opts.shareddisk_name, default=None)
+                shareddisk = Shareddisk(shareddisk_name)
+
+                # select vm to attach sharedDisk
+                repository.set_vm_list()
+                candidate_vm_list = copy.copy(repository.vm_list)
+                for vm_name in repository.vm_list:
+                    vm_tmp = Vm(vm_name)
+                    for volume in vm_tmp.volume_list:
+                        if shareddisk.name_w_prefix == vm_tmp.get_diskname_by_backend(volume['backend']):
+                            candidate_vm_list.remove(vm_name)
+                if len(candidate_vm_list) == 0:
+                    print "No VM to attach the specified Shared Disk."
+                    print ""
+                    sys.exit()
+                vm_name_list = utility.get_name_list(question="VM", choice_list=candidate_vm_list, input=opts.vm_name, default=None)
+
+                # select frontend to assign
+                candidate_shareddisk_frontend_list = copy.copy(shareddisk_frontend_list)
+                for vm_name in vm_name_list:
+                    vm_tmp = Vm(vm_name)
+                    for volume in vm_tmp.volume_list:
+                        if volume['frontend'] in candidate_shareddisk_frontend_list:
+                            candidate_shareddisk_frontend_list.remove(volume['frontend'])
+                shareddisk_frontend = utility.get_name(question="SHARED DISK FRONTEND", choice_list=candidate_shareddisk_frontend_list, input=opts.shareddisk_frontend_name, default=None)
+                shareddisk.frontend = shareddisk_frontend
+
+                print "Going to attach shareddisk: '%s' to following VM." % shareddisk.name
+                for vm_name in vm_name_list:
+                    print "\t" + vm_name
+                print ""
+                print "Are you sure ? [y/n]: ",
+                utility.ask_yes_or_no()
+
+                lu_source = "/dev/zvol/rdsk/%(path_shareddisk)s/%(shareddisk_name)s" % {"path_shareddisk":repository.path_shareddisk,"shareddisk_name":shareddisk.name}
+                lu_guid = repository.get_guid(lu_source)
+                lun = repository.get_lun(lu_guid)
+
+                for vm_name in vm_name_list:
+                    vm = Vm(vm_name)
+
+                    disk = {}
+                    disk["backend"] = shareddisk.get_backend(zfs_ip, shareddisk.targetname, lun)
+                    disk["frontend"] = shareddisk.frontend
+                    disk["permission"] = "w!"
+                    vm.volume_list.append(disk)
+
+                    # generate new domain configuration file
+                    print "Generating new domain configuration file: '/%s/%s/vm_cfg.py'" % (repository.path_domain, vm.name),
+                    vm.generate_new_vm_cfg()
+                    try:
+                        f = open("/%s/%s/vm_cfg.py" % (repository.path_domain, vm.name),"w")
+                        f.writelines(vm.new_vm_cfg)
+                        f.close()
+                        print msg_success
+                    except:
+                        print msg_fail
+                        return(1)
+                    print ""
+                    print "Shared Disk: '%s' has been attached to VM: '%s'." % (shareddisk.name, vm.name)
+                    print ""
+                    
+            elif action == "detach":
+                # determin the shareddisk which we want to detach.
+                repository.set_shareddisk_list()
+                if len(repository.shareddisk_list) == 0:
+                    print "No Shared Disk to detach."
+                    print ""
+                    sys.exit()
+                shareddisk_name = utility.get_name(question="SHARED DISK", choice_list=repository.shareddisk_list, input=opts.shareddisk_name, default=None)
+                shareddisk = Shareddisk(shareddisk_name)
+
+                # determine the VMs which we want to detach shareddisk from.
+                repository.set_vm_list()
+                candidate_vm_list = []
+                for vm_name in repository.vm_list:
+                    vm_tmp = Vm(vm_name)
+                    for volume in vm_tmp.volume_list:
+                        if shareddisk.name_w_prefix == vm_tmp.get_diskname_by_backend(volume['backend']):
+                            candidate_vm_list.append(vm_name)
+                if len(candidate_vm_list) == 0:
+                    print "No VM to detach the specified Shared Disk."
+                    print ""
+                    sys.exit()
+                vm_name_list = utility.get_name_list(question="VM", choice_list=candidate_vm_list, input=opts.vm_name, default=None)
+
+                print "Going to detach shareddisk: '%s' from following VM." % shareddisk.name
+                for vm_name in vm_name_list:
+                    print "\t" + vm_name
+                print ""
+                print "Are you sure ? [y/n]: ",
+                utility.ask_yes_or_no()
+
+                for vm_name in vm_name_list:
+                    self.detach_shareddisk(shareddisk, vm_name)
+
+            elif action == "delete":
+                repository.set_shareddisk_list()
+                if len(repository.shareddisk_list) == 0:
+                    print "No Shared Disk to delete."
+                    print ""
+                    sys.exit()
+                shareddisk_name_list = utility.get_name_list(question="SharedDisk", choice_list=repository.shareddisk_list, input=opts.shareddisk_name, default=None)
+                print "Going to delete following SharedDisk."
+                for shareddisk_name in shareddisk_name_list:
+                    print "\t" + shareddisk_name
+                print ""
+                print "Are you sure ? [y/n]: ",
+                utility.ask_yes_or_no()
+                for shareddisk_name in shareddisk_name_list:
+                    self.delete_shareddisk(shareddisk_name)
+            
+    def delete_domain(self, domain):
+        # logout from target
+        print ""
+        print "Deleting '%s'... " % domain.name
+        print "  Logging out from iSCSI Target: '%s'... " % domain.targetname
+        res = server_pool.logout_from_iscsi_target(domain.targetname)
+        
+        # delete target entry
+        print "  Deleting iSCSI Target Entry: '%s'... " % domain.targetname
+        res = server_pool.delete_iscsi_target(domain.targetname)
+
+        # delete target itself
+        print "  Deleting iSCSI Target: '%s'... " % domain.targetname,
+        cmd = "pfexec /usr/sbin/itadm delete-target -f %s" % domain.targetname
+        res = os.system(cmd)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+
+        # delete lu
+        lu_source_needle = "/dev/zvol/rdsk/%s" % domain.zfs_path
+        cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
+        res = commands.getoutput(cmd)
+        guid_list = res.splitlines()
+        for guid in guid_list:
+            print "  Deleting LU: '%s'... " % guid,
+            cmd = "pfexec /usr/sbin/stmfadm delete-lu %s" % guid
+            res = os.system(cmd)
+            if res == 0:
+                print msg_success
+            else:
+                print msg_fail
+
+        # delete target group
+        print "  Deleting Target Group: '%s'... " % domain.name,
+        cmd = "pfexec /usr/sbin/stmfadm delete-tg %s" % domain.name
+        res = os.system(cmd)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+
+        # delete volumes and snapshots from repository
+        print "  Deleting volumes and snapshots from repository...",
+        cmd = "pfexec /usr/sbin/zfs destroy -r %s" % domain.zfs_path
+        res = os.system(cmd)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+
+        # delete directory for domain configuration from repository
+        print "  Deleting directory for domain configuration from repository...",
+        cmd = "pfexec rm -rf /%s/%s" % (repository.path_domain, domain.name)
+        res = os.system(cmd)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+        print "\n'%s' has been deleted.\n" % domain.name
+
+    def detach_shareddisk(self, shareddisk, vm_name):
+        vm = Vm(vm_name)
+
+        new_volume_list = []
+        flag_found = False
+        for volume in vm.volume_list:
+            if not shareddisk.name_w_prefix == vm.get_diskname_by_backend(volume["backend"]):
+                new_volume_list.append(volume)
+            else:
+                flag_found = True
+
+        if not flag_found == True:
+            print "Specified SharedDisk is not attached to VM: '%s'. Skipped.\n" % vm.name
+            return(0)
+
+        vm.volume_list = new_volume_list
+
+        # generate new domain configuration file
+        print "Generating new domain configuration file: '/%s/%s/vm_cfg.py'" % (repository.path_domain, vm.name),
+        vm.generate_new_vm_cfg()
+        try:
+            f = open("/%s/%s/vm_cfg.py" % (repository.path_domain, vm.name),"w")
+            f.writelines(vm.new_vm_cfg)
+            f.close()
+            print msg_success
+        except:
+            print msg_fail
+            return(1)
+        print ""
+        print "Shared Disk: '%s' has been detached from VM: '%s'." % (shareddisk.name, vm.name)
+        print ""
+
+    def delete_shareddisk(self, shareddisk_name):
+        shareddisk = Shareddisk(shareddisk_name)
+        # detach specified Shared Disk from all VM which are attached to the shared disk.
+        repository.set_vm_list()
+        for vm_name in repository.vm_list:
+            vm_tmp = Vm(vm_name)
+            for volume in vm_tmp.volume_list:
+                if shareddisk.name_w_prefix == vm_tmp.get_diskname_by_backend(volume['backend']):
+                    self.detach_shareddisk(shareddisk, vm_name)
+
+        # logout from target
+        print ""
+        print "Deleting SharedDisk: '%s'... " % shareddisk.name
+        print "  Logging out from iSCSI Target: '%s'... " % shareddisk.targetname
+        res = server_pool.logout_from_iscsi_target(shareddisk.targetname)
+        
+        # delete target entry
+        print "  Deleting iSCSI Target Entry: '%s'... " % shareddisk.targetname
+        res = server_pool.delete_iscsi_target(shareddisk.targetname)
+
+        # delete target itself
+        print "  Deleting iSCSI Target: '%s'... " % shareddisk.targetname,
+        cmd = "pfexec /usr/sbin/itadm delete-target -f %s" % shareddisk.targetname
+        res = os.system(cmd)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+
+        # delete lu
+        lu_source_needle = "/dev/zvol/rdsk/%s/%s" % (repository.path_shareddisk, shareddisk.name)
+        cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
+        guid = commands.getoutput(cmd)
+        print "  Deleting LU: '%s'... " % guid,
+        cmd = "pfexec /usr/sbin/stmfadm delete-lu %s" % guid
+        res = os.system(cmd)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+
+        # delete target group
+        print "  Deleting Target Group: '%s'... " % shareddisk.name_w_prefix,
+        cmd = "pfexec /usr/sbin/stmfadm delete-tg %s" % shareddisk.name_w_prefix
+        res = os.system(cmd)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+
+        # delete volumes and snapshots from repository
+        print "  Deleting volumes and snapshots from repository...",
+        cmd = "pfexec /usr/sbin/zfs destroy -r %s/%s" % (repository.path_shareddisk, shareddisk.name)
+        res = os.system(cmd)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+
+        print "\nSharedDisk: '%s' has been deleted.\n" % shareddisk.name
+
+
+if __name__ == "__main__":
+    virtzfs = Virtzfs()
+    virtzfs.run(sys.argv)
+
