@@ -60,7 +60,7 @@ class Virtzfs:
         repository = Repository()
         server_pool = Server_pool()
         
-        if not repository.exist():
+        if not target == "repository" and not repository.exist():
             print "There is no Repository on ZFS at present. Repository can be created automatically."
             print "New Repository is going to be created. This operation does not consume disk space at this moment. OK ? [y/n]: ",
             utility.ask_yes_or_no()
