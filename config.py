@@ -1,12 +1,12 @@
 #!/usr/bin/python
 
 ### User Configurable Parameters
-zfs_ip = "172.22.0.53"
-vmserver_list = ["172.22.0.52",]
-repository_name = "nkjm"
+zfs_ip = ""
+vmserver_list = [""]
+repository_name = ""
 
 ### Do not edit below
-repository_root = "virtzfs/%s" % repository_name
+repository_root = "rpool/%s" % repository_name
 iqn_base = "iqn.0000-00.%s" % repository_name
 comstar_hostgroup_name = "virtzfs"
 shareddisk_prefix = "sdisk"
