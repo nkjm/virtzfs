@@ -23,7 +23,7 @@ from domain import Vm
 
 ### Config
 version = "2.0a1"
-usage = "\n  %prog ACTION TARGET [options]\n\nACTIONs and Targets:\n  init repository\n  show nfs\n  list template\n  import template (optional: [TEMPLATE_DIRECTORY])\n  update template -t [TEMPLATE_NAME]\n  delete template -t [TEMPLATE_NAME]\n  list vm\n  create vm -t [TEMPLATE_NAME] (optional:-i [NUMBER_OF_VM]) -n [VM_NAME]\n  list snapshot -v [VM_NAME]\n  snapshot vm (optional:-n [SNAPSHOT_NAME]) -v [VM_NAME]\n  rollback vm (optional:-s [SNAPSHOT_NAME]) -v [VM_NAME]\n  delete vm -v [VM_NAME]\n  create shareddisk -l [DISK_SIZE] -n [DISK_NAME]\n  delete shareddisk -d [DISK_NAME]\n  attach shareddisk -d [DISK_NAME] -v [VM_NAME]\n  detach shareddisk -d [DISK_NAME] -v [VM_NAME]"
+usage = "\n  %prog ACTION TARGET [options]\n\nACTIONs and Targets:\n  init repository\n  show nfs\n  list template\n  import template (optional: [TEMPLATE_DIRECTORY])\n  update template -t [TEMPLATE_NAME]\n  rollback template -t [TEMPLATE_NAME]\n  delete template -t [TEMPLATE_NAME]\n  list vm\n  create vm -t [TEMPLATE_NAME] (optional:-i [NUMBER_OF_VM]) -n [VM_NAME]\n  list snapshot -v [VM_NAME]\n  snapshot vm (optional:-n [SNAPSHOT_NAME]) -v [VM_NAME]\n  rollback vm (optional:-s [SNAPSHOT_NAME]) -v [VM_NAME]\n  delete vm -v [VM_NAME]\n  create shareddisk -l [DISK_SIZE] -n [DISK_NAME]\n  delete shareddisk -d [DISK_NAME]\n  attach shareddisk -d [DISK_NAME] -v [VM_NAME]\n  detach shareddisk -d [DISK_NAME] -v [VM_NAME]"
 shareddisk_frontend_list = ["xvdc","xvdd","xvde","xvdf","xvdg","xvdh","xvdi","xvdj","xvdk","xvdl","xvdm","xvdn","xvdo","xvdp","xvdq","xvdr","xvds","xvdt","xvdu","xvdv","xvdw","xvdx","xvdy","xvdz"]
 #shareddisk_frontend_list = ["sda","sdb","sdc","sdd","sde","sdf","sdg","sdh","sdi","sdj","sdk","sdl","sdm","sdn","sdo","sdp","sdq","sdr","sds","sdt","sdu","sdv","sdw","sdx","sdy","sdz"]
 
@@ -361,6 +361,44 @@ class Virtzfs:
                     print "\nTemplate has been updated.\n"
                 else:
                     print "\nFailed to update Template\n"
+
+            elif action == "rollback":
+                repository.set_template_list()
+                if len(repository.template_list) == 0:
+                    print "No Template to rollback."
+                    print ""
+                    sys.exit()
+                template_name = utility.get_name(question="Template", choice_list=repository.template_list, input=opts.template_name, default=None)
+                template = Template(template_name)
+                template.set_snapshot_list()
+                snapshot_name = opts.snapshot_name # verified later
+                if (snapshot_name is None):
+                    try:
+                        snapshot_name = utility.interview(question="SNAPSHOT NAME", choice_list=template.snapshot_list, default=None)
+                    except:
+                        return(1)
+                else:
+                    # Check if specified snapshot exists
+                    while True:
+                        cmd = "pfexec /usr/sbin/zfs list -t snapshot %s@%s > /dev/null 2>&1" % (template.zfs_path, snapshot_name)
+                        res = os.system(cmd)
+                        if not res == 0:
+                            print "Specified Snapshot does not exist."
+                            try:
+                                snapshot_name = utility.interview(question="SNAPSHOT NAME", choice_list=template.snapshot_list, default=None)
+                            except:
+                                return(1)
+                        else:
+                            break
+
+
+                res = self.rollback_domain(template, snapshot_name)
+                if not res == 0:
+                    return(1)
+
+                print ""
+                print "Rollback has been completed."
+                print ""
 
             elif action == "delete":
                 repository.set_template_list()
@@ -722,74 +760,9 @@ class Virtzfs:
                         else:
                             break
 
-                # logout from iSCSI Target
-                print "Logging out from iSCSI Target of '%s'... " % vm.name
-                res = server_pool.logout_from_iscsi_target(vm.targetname)
+                res = self.rollback_domain(vm, snapshot_name)
                 if not res == 0:
                     return(1)
-
-                # delete lu
-                lu_source_needle = "/dev/zvol/rdsk/%s" % vm.zfs_path
-                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
-                res = commands.getoutput(cmd)
-                guid_list = res.splitlines()
-                for guid in guid_list:
-                    print "Deleting LU: '%s'... " % guid,
-                    cmd = "pfexec /usr/sbin/stmfadm delete-lu %s" % guid
-                    res = os.system(cmd)
-                    if res == 0:
-                        print msg_success
-                    else:
-                        print msg_fail
-                        return(1)
-
-                # rollback parenet filesystem
-                print "Rolling back parenet filesystem... ",
-                res = repository.rollback(vm.zfs_path, snapshot_name)
-                if res == 0:
-                    print msg_success
-                else:
-                    print msg_fail
-                    return(1)
-
-                # rollback volumes 
-                for volume in vm.volume_list:
-                    print "Rolling back volume: %s... " % volume["frontend"],
-                    res = repository.rollback("%s/%s" % (vm.zfs_path, volume["frontend"]), snapshot_name)
-                    if res == 0:
-                        print msg_success
-                    else:
-                        print msg_fail
-                        return(1)
-
-                # create lu
-                for volume in vm.volume_list:
-                    print "Re-creating LUN for '%s'... " % volume["frontend"],
-                    cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%(vm_zfs_path)s/%(frontend)s" % {"vm_zfs_path":vm.zfs_path,"frontend":volume["frontend"]}
-                    res = os.system(cmd)
-                    if res == 0:
-                        print msg_success
-                    else:
-                        print msg_fail
-                        return(1)
-
-                # add view
-                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s | cut -d' ' -f1" % vm.zfs_path
-                res = commands.getoutput(cmd)
-                lu_list = res.splitlines() 
-                for lu in lu_list:
-                    print "Re-adding view for LU: '%s'... " % lu,
-                    cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s" % (vm.name, repository.hg, lu)
-                    res = os.system(cmd)
-                    if res == 0:
-                        print msg_success
-                    else:
-                        print msg_fail
-                        return(1)
-
-                # login to iSCSI Target
-                print "Re-logging in to iSCSI Target of '%s'... " % vm.name
-                res = server_pool.login_to_iscsi_target(vm.targetname)
 
                 print ""
                 print "Rollback has been completed."
@@ -1100,6 +1073,79 @@ class Virtzfs:
                 for shareddisk_name in shareddisk_name_list:
                     self.delete_shareddisk(shareddisk_name)
             
+    def rollback_domain(self, domain, snapshot_name):
+        # logout from iSCSI Target
+        print "Logging out from iSCSI Target of '%s'... " % domain.name
+        res = server_pool.logout_from_iscsi_target(domain.targetname)
+        if not res == 0:
+            return(1)
+
+        # delete lu
+        lu_source_needle = "/dev/zvol/rdsk/%s" % domain.zfs_path
+        cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
+        res = commands.getoutput(cmd)
+        guid_list = res.splitlines()
+        for guid in guid_list:
+            print "Deleting LU: '%s'... " % guid,
+            cmd = "pfexec /usr/sbin/stmfadm delete-lu %s" % guid
+            res = os.system(cmd)
+            if res == 0:
+                print msg_success
+            else:
+                print msg_fail
+                return(1)
+
+        # rollback parenet filesystem
+        print "Rolling back parenet filesystem... ",
+        res = repository.rollback(domain.zfs_path, snapshot_name)
+        if res == 0:
+            print msg_success
+        else:
+            print msg_fail
+            return(1)
+
+        # rollback volumes
+        for volume in domain.volume_list:
+            print "Rolling back volume: %s... " % volume["frontend"],
+            res = repository.rollback("%s/%s" % (domain.zfs_path, volume["frontend"]), snapshot_name)
+            if res == 0:
+                print msg_success
+            else:
+                print msg_fail
+                return(1)
+
+        # create lu
+        for volume in domain.volume_list:
+            print "Re-creating LUN for '%s'... " % volume["frontend"],
+            cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%(domain_zfs_path)s/%(frontend)s" % {"domain_zfs_path":domain.zfs_path,"frontend":volume["frontend"]}
+            res = os.system(cmd)
+            if res == 0:
+                print msg_success
+            else:
+                print msg_fail
+                return(1)
+
+        # add view
+        cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s | cut -d' ' -f1" % domain.zfs_path
+        res = commands.getoutput(cmd)
+        lu_list = res.splitlines()
+        for lu in lu_list:
+            print "Re-adding view for LU: '%s'... " % lu,
+            cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s" % (domain.name, repository.hg, lu)
+            res = os.system(cmd)
+            if res == 0:
+                print msg_success
+            else:
+                print msg_fail
+                return(1)
+
+        # login to iSCSI Target
+        print "Re-logging in to iSCSI Target of '%s'... " % domain.name
+        res = server_pool.login_to_iscsi_target(domain.targetname)
+        if not res == 0:
+            return(1)
+        return(0)
+
     def delete_domain(self, domain):
         # logout from target
         print ""
