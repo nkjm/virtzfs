@@ -212,8 +212,8 @@ class Virtzfs:
                     return(1)
 
                 # create target group
-                print "  Creating iSCSI Target Group: '%s'... " % template.name,
-                cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % template.name
+                print "  Creating iSCSI Target Group: '%s'... " % template.targetgroupname,
+                cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % template.targetgroupname
                 res = os.system(cmd)
                 if res == 0:
                     print msg_success
@@ -236,8 +236,8 @@ class Virtzfs:
                     return(1)
 
                 # add target to target group
-                print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (template.targetname, template.name),
-                cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %s %s > /dev/null 2>&1" % (template.name, template.targetname)
+                print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (template.targetname, template.targetgroupname),
+                cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %s %s > /dev/null 2>&1" % (template.targetgroupname, template.targetname)
                 res = os.system(cmd)
                 if res == 0:
                     print msg_success
@@ -278,7 +278,7 @@ class Virtzfs:
                 lu_list = res.splitlines() 
                 for lu in lu_list:
                     print "  Adding View to LU: '%s'... " % lu,
-                    cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (template.name, repository.hg, lu)
+                    cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (template.targetgroupname, repository.hg, lu)
                     res = os.system(cmd)
                     if res == 0:
                         print msg_success
@@ -546,8 +546,8 @@ class Virtzfs:
                         return(1)
 
                     # create target group
-                    print "  Creating iSCSI Target Group: '%s'... " % vm.name,
-                    cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % vm.name
+                    print "  Creating iSCSI Target Group: '%s'... " % vm.targetgroupname,
+                    cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % vm.targetgroupname
                     res = os.system(cmd)
                     if res == 0:
                         print msg_success
@@ -574,8 +574,8 @@ class Virtzfs:
                         return(1)
 
                     # add target to target group
-                    print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (vm.targetname, vm.name),
-                    cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %(vm_name)s %(vm_targetname)s > /dev/null 2>&1" % {"vm_name":vm.name,"vm_targetname":vm.targetname}
+                    print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (vm.targetname, vm.targetgroupname),
+                    cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %(vm_targetgroupname)s %(vm_targetname)s > /dev/null 2>&1" % {"vm_targetgroupname":vm.targetgroupname,"vm_targetname":vm.targetname}
                     res = os.system(cmd)
                     if res == 0:
                         print msg_success
@@ -624,7 +624,7 @@ class Virtzfs:
                     lu_list = res.splitlines() 
                     for lu in lu_list:
                         print "  Adding View to LU: '%s'... " % lu,
-                        cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (vm.name, repository.hg, lu)
+                        cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (vm.targetgroupname, repository.hg, lu)
                         res = os.system(cmd)
                         if res == 0:
                             print msg_success
@@ -854,8 +854,8 @@ class Virtzfs:
                     return(1)
 
                 # create target group
-                print "  Creating iSCSI Target Group: '%s'... " % shareddisk.name_w_prefix,
-                cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % shareddisk.name_w_prefix
+                print "  Creating iSCSI Target Group: '%s'... " % shareddisk.targetgroupname,
+                cmd = "pfexec /usr/sbin/stmfadm create-tg %s > /dev/null 2>&1" % shareddisk.targetgroupname
                 res = os.system(cmd)
                 if res == 0:
                     print msg_success
@@ -878,8 +878,8 @@ class Virtzfs:
                     return(1)
 
                 # add target to target group
-                print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (shareddisk.targetname, shareddisk.name_w_prefix),
-                cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %s %s > /dev/null 2>&1" % (shareddisk.name_w_prefix, shareddisk.targetname)
+                print "  Adding iSCSI Target: '%s' to Target Group: '%s'... " % (shareddisk.targetname, shareddisk.targetgroupname),
+                cmd = "pfexec /usr/sbin/stmfadm add-tg-member -g %s %s > /dev/null 2>&1" % (shareddisk.targetgroupname, shareddisk.targetname)
                 res = os.system(cmd)
                 if res == 0:
                     print msg_success
@@ -923,7 +923,7 @@ class Virtzfs:
                 }
                 lu = commands.getoutput(cmd)
                 print "  Adding View to LU: '%s'... " % shareddisk.name,
-                cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (shareddisk.name_w_prefix, repository.hg, lu)
+                cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (shareddisk.targetgroupname, repository.hg, lu)
                 res = os.system(cmd)
                 if res == 0:
                     print msg_success
@@ -1181,8 +1181,8 @@ class Virtzfs:
                 print msg_fail
 
         # delete target group
-        print "  Deleting Target Group: '%s'... " % domain.name,
-        cmd = "pfexec /usr/sbin/stmfadm delete-tg %s" % domain.name
+        print "  Deleting Target Group: '%s'... " % domain.targetgroupname,
+        cmd = "pfexec /usr/sbin/stmfadm delete-tg %s" % domain.targetgroupname
         res = os.system(cmd)
         if res == 0:
             print msg_success
@@ -1282,8 +1282,8 @@ class Virtzfs:
             print msg_fail
 
         # delete target group
-        print "  Deleting Target Group: '%s'... " % shareddisk.name_w_prefix,
-        cmd = "pfexec /usr/sbin/stmfadm delete-tg %s" % shareddisk.name_w_prefix
+        print "  Deleting Target Group: '%s'... " % shareddisk.targetgroupname,
+        cmd = "pfexec /usr/sbin/stmfadm delete-tg %s" % shareddisk.targetgroupname
         res = os.system(cmd)
         if res == 0:
             print msg_success

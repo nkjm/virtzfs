@@ -24,6 +24,7 @@ class Domain:
         self.snapshot_list = [] 
         self.shareddisk_list = []
         self.targetname = self.get_targetname()
+        self.targetgroupname = self.get_targetgroupname()
 
         # In case create_vm, domain directory does not exist yet so skip.
         if not os.path.isdir("/%s/%s/%s" % (repository_root, dir_domain, self.name)):
@@ -80,6 +81,10 @@ class Domain:
         name = name.lower()
         targetname = "%(iqn_base)s:%(name)s" % {"iqn_base":iqn_base,"name":name}
         return(targetname)
+
+    def get_targetgroupname(self):
+        targetgroupname = "%s:%s" % (repository_name, self.name)
+        return(targetgroupname)
 
     def get_backend(self, zfs_ip, targetname, lun):
         backend = "/dev/disk/by-path/ip-%(zfs_ip)s:3260-iscsi-%(targetname)s-lun-%(lun)s" % {"zfs_ip":zfs_ip, "targetname":targetname, "lun":lun}
