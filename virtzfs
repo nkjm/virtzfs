@@ -1131,7 +1131,7 @@ class Virtzfs:
         lu_list = res.splitlines()
         for lu in lu_list:
             print "Re-adding view for LU: '%s'... " % lu,
-            cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s" % (domain.name, repository.hg, lu)
+            cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s" % (domain.targetgroupname, repository.hg, lu)
             res = os.system(cmd)
             if res == 0:
                 print msg_success
