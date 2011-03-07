@@ -137,11 +137,12 @@ class Repository:
             # create repository
             print "\nCreating repository: '%s'... " % self.path_root,
             cmd = "\
-                pfexec /sbin/zfs create -p -o dedup=on %(path_root)s && \
+                pfexec /sbin/zfs create -p -o dedup=%(dedup)s %(path_root)s && \
                 pfexec /sbin/zfs create -p -o sharenfs=rw,anon=0 %(path_domain)s && \
                 pfexec /sbin/zfs create -p %(path_template)s && \
                 pfexec /sbin/zfs create -p %(path_vm)s && \
                 pfexec /sbin/zfs create -p %(path_shareddisk)s" % {
+                "dedup":dedup,
                 "path_root":self.path_root,
                 "path_domain":self.path_domain,
                 "path_template":self.path_template,

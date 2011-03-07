@@ -3,7 +3,8 @@
 ### User Configurable Parameters
 zfs_ip = ""
 vmserver_list = [""]
-repository_name = ""
+repository_name = "virtzfs"
+dedup = "on"
 
 ### Do not edit below
 repository_root = "rpool/%s" % repository_name
