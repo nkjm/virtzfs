@@ -273,7 +273,7 @@ class Virtzfs:
                         return(1)
 
                 # add view and map to target group
-                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s | cut -d' ' -f1" % template.zfs_path
+                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s/ | cut -d' ' -f1" % template.zfs_path
                 res = commands.getoutput(cmd)
                 lu_list = res.splitlines() 
                 for lu in lu_list:
@@ -619,7 +619,7 @@ class Virtzfs:
                             return(1)
 
                     # add view and map to target group
-                    cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s | cut -d' ' -f1" % vm.zfs_path
+                    cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s/ | cut -d' ' -f1" % vm.zfs_path
                     res = commands.getoutput(cmd)
                     lu_list = res.splitlines() 
                     for lu in lu_list:
@@ -917,7 +917,7 @@ class Virtzfs:
                     return(1)
 
                 # add view and map to target group
-                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%(path_shareddisk)s/%(shareddisk_name)s | cut -d' ' -f1" % {
+                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%(path_shareddisk)s/%(shareddisk_name)s$ | cut -d' ' -f1" % {
                     "path_shareddisk":repository.path_shareddisk,
                     "shareddisk_name":shareddisk.name
                 }
@@ -1270,7 +1270,7 @@ class Virtzfs:
             print msg_fail
 
         # delete lu
-        lu_source_needle = "/dev/zvol/rdsk/%s/%s" % (repository.path_shareddisk, shareddisk.name)
+        lu_source_needle = "/dev/zvol/rdsk/%s/%s$" % (repository.path_shareddisk, shareddisk.name)
         cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
         guid = commands.getoutput(cmd)
         print "  Deleting LU: '%s'... " % guid,

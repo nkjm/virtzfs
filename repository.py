@@ -52,7 +52,7 @@ class Repository:
         return(latest_snapshot)
 
     def get_guid(self, lu_source):
-        cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source
+        cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s$ | cut -d' ' -f1" % lu_source
         res = commands.getoutput(cmd)
         return(res)
 
@@ -189,7 +189,7 @@ class Repository:
         ### Add Host Group Member to Host Group
         for iqn in iqn_list:
             # confirm specified client IQN does not belong to Host Group yet.
-            cmd = "pfexec /usr/sbin/stmfadm list-hg -v | grep %s > /dev/null 2>&1" % iqn
+            cmd = "pfexec /usr/sbin/stmfadm list-hg -v | grep %s$ > /dev/null 2>&1" % iqn
             if os.system(cmd) == 0:
                 # IQN detected so skip.
                 print "Client IQN: '%s' already belongs to Host Group: '%s' so skip to process." % (iqn, self.hg)
