@@ -1081,7 +1081,7 @@ class Virtzfs:
             return(1)
 
         # delete lu
-        lu_source_needle = "/dev/zvol/rdsk/%s" % domain.zfs_path
+        lu_source_needle = "/dev/zvol/rdsk/%s/" % domain.zfs_path
         cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
         res = commands.getoutput(cmd)
         guid_list = res.splitlines()
@@ -1126,7 +1126,7 @@ class Virtzfs:
                 return(1)
 
         # add view
-        cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%s | cut -d' ' -f1" % domain.zfs_path
+        cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
         res = commands.getoutput(cmd)
         lu_list = res.splitlines()
         for lu in lu_list:
@@ -1167,7 +1167,7 @@ class Virtzfs:
             print msg_fail
 
         # delete lu
-        lu_source_needle = "/dev/zvol/rdsk/%s" % domain.zfs_path
+        lu_source_needle = "/dev/zvol/rdsk/%s/" % domain.zfs_path
         cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
         res = commands.getoutput(cmd)
         guid_list = res.splitlines()
