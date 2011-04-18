@@ -156,22 +156,24 @@ class Utility:
         dynamic_list = list(choice_list)
         name_list = []
         while True:
+            if not len(name_list) == 0:
+                dynamic_list.append("That's it.")
             name = self.get_name(question=question, choice_list=dynamic_list, input=input, default=default)
             dynamic_list.remove(name)
+            if name == "That's it.":
+                break
             if not name in name_list:
                 name_list.append(name)
             print "Selected %s:" % question
             for i in name_list:
                 print "\t" + i
             print ""
+            try:
+                dynamic_list.remove("That's it.")
+            except:
+                pass
             if len(dynamic_list) < 1:
                 break
-            print "Add more %s ? [y/n]: " % question,
-            if self.get_yes_or_no() == "yes":
-                print ""
-                pass
-            else:
-                print ""
-                break
         return(name_list)
+
 
