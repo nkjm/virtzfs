@@ -22,7 +22,7 @@ from domain import Template
 from domain import Vm
 
 ### Config
-version = "2.0a1"
+version = "2.1"
 usage = "\n  %prog ACTION TARGET [options]\n\nACTIONs and Targets:\n  init repository\n  show nfs\n  list template\n  import template (optional: [TEMPLATE_DIRECTORY])\n  update template -t [TEMPLATE_NAME]\n  rollback template -t [TEMPLATE_NAME]\n  delete template -t [TEMPLATE_NAME]\n  list vm\n  create vm -t [TEMPLATE_NAME] (optional:-i [NUMBER_OF_VM]) -n [VM_NAME]\n  list snapshot -v [VM_NAME]\n  snapshot vm (optional:-n [SNAPSHOT_NAME]) -v [VM_NAME]\n  rollback vm (optional:-s [SNAPSHOT_NAME]) -v [VM_NAME]\n  delete vm -v [VM_NAME]\n  create shareddisk -l [DISK_SIZE] -n [DISK_NAME]\n  delete shareddisk -d [DISK_NAME]\n  attach shareddisk -d [DISK_NAME] -v [VM_NAME]\n  detach shareddisk -d [DISK_NAME] -v [VM_NAME]"
 shareddisk_frontend_list = ["xvdc","xvdd","xvde","xvdf","xvdg","xvdh","xvdi","xvdj","xvdk","xvdl","xvdm","xvdn","xvdo","xvdp","xvdq","xvdr","xvds","xvdt","xvdu","xvdv","xvdw","xvdx","xvdy","xvdz"]
 #shareddisk_frontend_list = ["sda","sdb","sdc","sdd","sde","sdf","sdg","sdh","sdi","sdj","sdk","sdl","sdm","sdn","sdo","sdp","sdq","sdr","sds","sdt","sdu","sdv","sdw","sdx","sdy","sdz"]

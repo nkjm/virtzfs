@@ -110,13 +110,16 @@ class Domain:
 
     def generate_new_vm_cfg(self):
         self.new_vm_cfg = []
-        self.new_vm_cfg.append("name = '%s'\n" % self.name)
-        self.new_vm_cfg.append("bootloader = '%s'\n" % self.vm_cfg.bootloader)
-        self.new_vm_cfg.append("on_crash = '%s'\n" % self.vm_cfg.on_crash)
-        self.new_vm_cfg.append("on_reboot = '%s'\n" % self.vm_cfg.on_reboot)
+        self.vm_cfg.name = self.name
 
-        self.new_vm_cfg.append("vcpus = '%s'\n" % self.vm_cfg.vcpus)
-        self.new_vm_cfg.append("memory = '%s'\n" % self.vm_cfg.memory)
+        exclude_list = ['__builtins__', '__doc__', '__file__', '__name__', '__package__', 'disk', 'uuid', 'vif']
+        prop_list = dir(self.vm_cfg)
+        for exclude in exclude_list:
+            if exclude in prop_list:
+                prop_list.remove(exclude)
+        #prop_list = ['acpi', 'apic', 'bootloader', 'builder', 'cpus', 'device_model', 'extra', 'kernel', 'keymap', 'localtime', 'maxmem', 'memory', 'name', 'nfs_server', 'nfs_root', 'on_crash', 'on_power_off', 'on_reboot', 'pae', 'ramdisk', 'root', 'serial', 'timer_mode', 'usb', 'usbdevice', 'vcpu', 'vfb', 'vif_other_config', 'vnc', 'vncconsole', 'vnclisten', 'vncpassword', 'vncunused', 'vscsi', 'vtpm']
+        for prop in prop_list:
+            self.new_vm_cfg.append("%s = '%s'\n" % (prop, getattr(self.vm_cfg, prop)))
 
         self.new_vm_cfg.append("disk = [\n")
         for volume in self.volume_list:
