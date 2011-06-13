@@ -117,7 +117,7 @@ class Domain:
         for exclude in exclude_list:
             if exclude in prop_list:
                 prop_list.remove(exclude)
-        #prop_list = ['acpi', 'apic', 'bootloader', 'builder', 'cpus', 'device_model', 'extra', 'kernel', 'keymap', 'localtime', 'maxmem', 'memory', 'name', 'nfs_server', 'nfs_root', 'on_crash', 'on_power_off', 'on_reboot', 'pae', 'ramdisk', 'root', 'serial', 'timer_mode', 'usb', 'usbdevice', 'vcpu', 'vfb', 'vif_other_config', 'vnc', 'vncconsole', 'vnclisten', 'vncpassword', 'vncunused', 'vscsi', 'vtpm']
+
         for prop in prop_list:
             self.new_vm_cfg.append("%s = '%s'\n" % (prop, getattr(self.vm_cfg, prop)))
 
