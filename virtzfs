@@ -46,7 +46,7 @@ class Virtzfs:
         (opts, args) = p.parse_args()
         
         if len(args) < 2:
-            print "At least, 2 arguments must be given. Try -h or --help."
+            print "At least 2 arguments must be given. Try -h or --help."
             sys.exit()
         
         action = args[0]
@@ -75,8 +75,10 @@ class Virtzfs:
             if action == "show":
                 print "\t%s:/%s" % (socket.gethostname(), repository.path_domain)
                 print ""
+            else:
+                print "Invalid Option: \"%s\"\nTry --help" % action
 
-        if target == "repository":
+        elif target == "repository":
             if action == "init":
                 print "Going to initialize Repository. This does not overwrite existing data & configuration. OK ? [y/n]: ",
                 utility.ask_yes_or_no()
@@ -86,8 +88,10 @@ class Virtzfs:
                     sys.exit()
                 repository.initialize(server_pool.iqn_list)
                 print ""
+            else:
+                print "Invalid Option: \"%s\"\nTry --help" % action
 
-        if target == "template":
+        elif target == "template":
             if action == "list":
                 repository.set_template_list()
                 for template in repository.template_list:
@@ -416,6 +420,8 @@ class Virtzfs:
                 for template_name in template_name_list:
                     template = Template(template_name)
                     self.delete_domain(template)
+            else:
+                print "Invalid Option: \"%s\"\nTry --help" % action
 
         elif target == "vm":
             if action == "list":
@@ -785,6 +791,8 @@ class Virtzfs:
                 for vm_name in vm_name_list:
                     vm = Vm(vm_name)
                     self.delete_domain(vm)
+            else:
+                print "Invalid Option: \"%s\"\nTry --help" % action
 
         elif target == "snapshot":
             if action == "list":
@@ -811,6 +819,8 @@ class Virtzfs:
                     print "\nSnapshot has been deleted.\n"
                 else:
                     print "\nFailed to delete snapshot.\n"
+            else:
+                print "Invalid Option: \"%s\"\nTry --help" % action
                 
         elif target == "shareddisk":
             if action == "list":
@@ -1072,6 +1082,10 @@ class Virtzfs:
                 utility.ask_yes_or_no()
                 for shareddisk_name in shareddisk_name_list:
                     self.delete_shareddisk(shareddisk_name)
+            else:
+                print "Invalid Option: \"%s\"\nTry --help" % action
+        else:
+            print "Invalid Option: \"%s\".\nTry --help" % target
             
     def rollback_domain(self, domain, snapshot_name):
         # logout from iSCSI Target
