@@ -23,7 +23,7 @@ from domain import Vm
 
 ### Config
 version = "2.1"
-usage = "\n  %prog ACTION TARGET [options]\n\nACTIONs and Targets:\n  init repository\n  show nfs\n  list template\n  import template (optional: [TEMPLATE_DIRECTORY])\n  update template -t [TEMPLATE_NAME]\n  rollback template -t [TEMPLATE_NAME]\n  delete template -t [TEMPLATE_NAME]\n  list vm\n  create vm -t [TEMPLATE_NAME] (optional:-i [NUMBER_OF_VM]) -n [VM_NAME]\n  list snapshot -v [VM_NAME]\n  snapshot vm (optional:-n [SNAPSHOT_NAME]) -v [VM_NAME]\n  rollback vm (optional:-s [SNAPSHOT_NAME]) -v [VM_NAME]\n  delete vm -v [VM_NAME]\n  create shareddisk -l [DISK_SIZE] -n [DISK_NAME]\n  delete shareddisk -d [DISK_NAME]\n  attach shareddisk -d [DISK_NAME] -v [VM_NAME]\n  detach shareddisk -d [DISK_NAME] -v [VM_NAME]"
+usage = "\n  %prog ACTION TARGET [options]\n\nACTIONs and Targets:\n  init repository\n  show nfs\n  list template\n  import template [TEMPLATE_DIRECTORY]\n  update template -t [TEMPLATE_NAME]\n  rollback template -t [TEMPLATE_NAME]\n  delete template -t [TEMPLATE_NAME]\n  list vm\n  create vm -t [TEMPLATE_NAME] -i NUMBER_OF_VM -n [VM_NAME]\n  list snapshot\n  delete snapshot\n  snapshot vm -n [SNAPSHOT_NAME] -v [VM_NAME]\n  rollback vm -s [SNAPSHOT_NAME] -v [VM_NAME]\n  delete vm -v [VM_NAME]\n  create shareddisk -l [DISK_SIZE] -n [DISK_NAME]\n  delete shareddisk -d [DISK_NAME]\n  attach shareddisk -d [DISK_NAME] -v [VM_NAME]\n  detach shareddisk -d [DISK_NAME] -v [VM_NAME]\n  snapshot shareddisk -d [DISK_NAME] -n [SNAPSHOT_NAME]\n  rollback shareddisk -d [DISK_NAME] -s [SNAPSHOT_NAME]"
 shareddisk_frontend_list = ["xvdc","xvdd","xvde","xvdf","xvdg","xvdh","xvdi","xvdj","xvdk","xvdl","xvdm","xvdn","xvdo","xvdp","xvdq","xvdr","xvds","xvdt","xvdu","xvdv","xvdw","xvdx","xvdy","xvdz"]
 #shareddisk_frontend_list = ["sda","sdb","sdc","sdd","sde","sdf","sdg","sdh","sdi","sdj","sdk","sdl","sdm","sdn","sdo","sdp","sdq","sdr","sds","sdt","sdu","sdv","sdw","sdx","sdy","sdz"]
 
@@ -797,24 +797,57 @@ class Virtzfs:
         elif target == "snapshot":
             if action == "list":
                 repository.set_vm_list()
-                vm_name = utility.get_name(question="VM", choice_list=repository.vm_list, input=opts.vm_name, default=None)
-                vm = Vm(vm_name)
-                vm.set_snapshot_list()
-                for snapshot in vm.snapshot_list:
-                    print "\t%s" % snapshot
-                print ""
+                repository.set_shareddisk_list()
+                vm_list = []
+                shareddisk_list = []
+                for vm in repository.vm_list:
+                    vm_list.append(vm + ' - vm')
+                for shareddisk in repository.shareddisk_list:
+                    shareddisk_list.append(shareddisk + ' - shareddisk')
+                merged_choice_list = vm_list + shareddisk_list
+                name = utility.get_name(question="VM or Shared Disk", choice_list=merged_choice_list, input=None, default=None)
+
+                name_list = name.split(' - ')
+                if name_list[1] == 'vm':
+                    vm = Vm(name_list[0])
+                    vm.set_snapshot_list()
+                    for snapshot in vm.snapshot_list:
+                        print "\t%s" % snapshot
+                    print ""
+                elif name_list[1] == 'shareddisk':
+                    shareddisk = Shareddisk(name_list[0])
+                    shareddisk.set_snapshot_list()
+                    for snapshot in shareddisk.snapshot_list:
+                        print "\t%s" % snapshot
+                    print ""
 
             elif action == "delete":
                 repository.set_vm_list()
-                if len(repository.vm_list) == 0:
-                    print "No VM to delete snapshot."
+                repository.set_shareddisk_list()
+                if len(repository.vm_list) == 0 and len(repository_shareddisk_list) == 0:
+                    print "No VM nor Shared Disk to delete snapshot."
                     print ""
                     sys.exit()
-                vm_name = utility.get_name(question="VM", choice_list=repository.vm_list, input=opts.vm_name, default=None)
-                vm = Vm(vm_name)
-                vm.set_snapshot_list()
-                snapshot_name = utility.get_name(question="Snapshot", choice_list=vm.snapshot_list, input=opts.snapshot_name, default=None)
-                res = repository.delete_snapshot("%s" % (vm.zfs_path), snapshot_name)
+                vm_list = []
+                shareddisk_list = []
+                for vm in repository.vm_list:
+                    vm_list.append(vm + ' - vm')
+                for shareddisk in repository.shareddisk_list:
+                    shareddisk_list.append(shareddisk + ' - shareddisk')
+                merged_choice_list = vm_list + shareddisk_list
+                name = utility.get_name(question="VM or Shared Disk", choice_list=merged_choice_list, input=None, default=None)
+
+                name_list = name.split(' - ')
+                if name_list[1] == 'vm':
+                    vm = Vm(name_list[0])
+                    vm.set_snapshot_list()
+                    snapshot_name = utility.get_name(question="Snapshot", choice_list=vm.snapshot_list, input=None, default=None)
+                    res = repository.delete_snapshot("%s" % (vm.zfs_path), snapshot_name)
+                elif name_list[1] == 'shareddisk':
+                    shareddisk = Shareddisk(name_list[0])
+                    shareddisk.set_snapshot_list()
+                    snapshot_name = utility.get_name(question="Snapshot", choice_list=shareddisk.snapshot_list, input=None, default=None)
+                    res = repository.delete_snapshot("%s/%s" % (repository.path_shareddisk, shareddisk.name), snapshot_name)
                 if res == 0:
                     print "\nSnapshot has been deleted.\n"
                 else:
@@ -1082,6 +1115,122 @@ class Virtzfs:
                 utility.ask_yes_or_no()
                 for shareddisk_name in shareddisk_name_list:
                     self.delete_shareddisk(shareddisk_name)
+            elif action == "snapshot":
+                repository.set_shareddisk_list()
+                if len(repository.shareddisk_list) == 0:
+                    print "No Shared Disk to take snapshot."
+                    print ""
+                    sys.exit()
+                shareddisk_name = utility.get_name(question="SHARED DISK", choice_list=repository.shareddisk_list, input=opts.shareddisk_name, default=None)
+                shareddisk = Shareddisk(shareddisk_name)
+                shareddisk.set_snapshot_list()
+                default_snapshot_name = time.strftime("%Y_%m_%d_%H_%M_%S")
+                snapshot_name = utility.get_new_name(question="NEW SNAPSHOT NAME", choice_list=shareddisk.snapshot_list, input=opts.name, default=default_snapshot_name)
+                print "Taking snapshot of '%s/%s'... " % (repository.path_shareddisk, shareddisk.name),
+                res = repository.create_snapshot(repository.path_shareddisk + '/' + shareddisk.name, snapshot_name)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    return 1
+            elif action == "rollback":
+                repository.set_shareddisk_list()
+                if len(repository.shareddisk_list) == 0:
+                    print "No Shared Disk to rollback."
+                    print ""
+                    sys.exit()
+                shareddisk_name = utility.get_name(question="SHARED DISK", choice_list=repository.shareddisk_list, input=opts.shareddisk_name, default=None)
+                shareddisk = Shareddisk(shareddisk_name)
+                shareddisk.set_snapshot_list()
+                snapshot_name = opts.snapshot_name # verified later
+                if (snapshot_name is None):
+                    try:
+                        snapshot_name = utility.interview(question="SNAPSHOT NAME", choice_list=shareddisk.snapshot_list, default=None)
+                    except:
+                        return 1
+                else:
+                    # Check if specified snapshot exists
+                    while True:
+                        cmd = "pfexec /usr/sbin/zfs list -t snapshot %s/%s@%s > /dev/null 2>&1" % (repository.path_shareddisk, shareddisk.name, snapshot_name)
+                        res = os.system(cmd)
+                        if not res == 0:
+                            print "Specified Snapshot does not exist."
+                            try:
+                                snapshot_name = utility.interview(question="SNAPSHOT NAME", choice_list=shareddisk.snapshot_list, default=None)
+                            except:
+                                return 1
+                        else:
+                            break
+
+                #res = self.rollback_domain(vm, snapshot_name)
+                # logout from iSCSI Target
+                print "Logging out from iSCSI Target of '%s'... " % shareddisk.name
+                res = server_pool.logout_from_iscsi_target(shareddisk.targetname)
+                if not res == 0:
+                    return 1
+
+                # delete lu
+                lu_source_needle = "/dev/zvol/rdsk/%s/%s$" % (repository.path_shareddisk, shareddisk.name)
+                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep %s | cut -d' ' -f1" % lu_source_needle
+                guid = commands.getoutput(cmd)
+                print "  Deleting LU: '%s'... " % guid,
+                cmd = "pfexec /usr/sbin/stmfadm delete-lu %s" % guid
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+
+
+                print "Rolling back volume: %s... " % shareddisk.name,
+                res = repository.rollback("%s/%s" % (repository.path_shareddisk, shareddisk.name), snapshot_name)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    return 1
+
+                # create lu
+                print "Re-creating LU: '%s'... " % shareddisk.name,
+                cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%(path_shareddisk)s/%(shareddisk_name)s > /dev/null 2>&1" % {
+                    "path_shareddisk":repository.path_shareddisk,
+                    "shareddisk_name":shareddisk.name
+                }
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    return 1
+
+                # add view and map to target group
+                cmd = "pfexec /usr/sbin/sbdadm list-lu | grep /dev/zvol/rdsk/%(path_shareddisk)s/%(shareddisk_name)s$ | cut -d' ' -f1" % {
+                    "path_shareddisk":repository.path_shareddisk,
+                    "shareddisk_name":shareddisk.name
+                }
+                lu = commands.getoutput(cmd)
+                print "  Adding View to LU: '%s'... " % shareddisk.name,
+                cmd = "pfexec /usr/sbin/stmfadm add-view -t %s -h %s %s > /dev/null 2>&1" % (shareddisk.targetgroupname, repository.hg, lu)
+                res = os.system(cmd)
+                if res == 0:
+                    print msg_success
+                else:
+                    print msg_fail
+                    return 1
+                print ""
+
+                # login to iSCSI Target
+                print "Re-logging in to iSCSI Target of '%s'... " % shareddisk.name
+                res = server_pool.login_to_iscsi_target(shareddisk.targetname)
+                if not res == 0:
+                    return 1
+                return 0
+                if not res == 0:
+                    return 1
+
+                print ""
+                print "Rollback has been completed."
+                print ""
             else:
                 print "Invalid Option: \"%s\"\nTry --help" % action
         else:

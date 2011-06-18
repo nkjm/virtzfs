@@ -91,7 +91,7 @@ class Repository:
         cmd = "pfexec /usr/sbin/zfs list %s > /dev/null 2>&1" % path
         res = os.system(cmd)
         if not res == 0:
-            print "Specified target does not exist"
+            print "Specified path: %s does not exist" % path
             return(1)
 
         # check if specified snapshot name does not exist

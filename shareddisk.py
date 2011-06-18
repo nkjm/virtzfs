@@ -27,6 +27,7 @@ class Shareddisk:
         self.backend = None
         self.frontend = None
         self.permission = "w!"
+        self.snapshot_list = []
 
     def get_targetname(self):
         name = re.sub('_', '', self.name)
@@ -41,3 +42,8 @@ class Shareddisk:
     def get_backend(self, zfs_ip, targetname, lun):
         backend = "/dev/disk/by-path/ip-%(zfs_ip)s:3260-iscsi-%(targetname)s-lun-%(lun)s" % {"zfs_ip":zfs_ip, "targetname":targetname, "lun":lun}
         return(backend)
+
+    def set_snapshot_list(self):
+        cmd = "pfexec /usr/sbin/zfs list -H -r -o name -S creation -t snapshot %s/%s/%s | sed 's/^.*@//g' | uniq" % (repository_root, dir_shareddisk, self.name)
+        res = commands.getoutput(cmd)
+        self.snapshot_list = res.splitlines()
