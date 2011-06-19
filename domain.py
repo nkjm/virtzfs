@@ -43,35 +43,37 @@ class Domain:
         sys.path.remove(os.path.dirname(vm_cfg_path))
 
         volume_list = []
-        for each_disk in vm_cfg.disk:
-            disk = {}
-            disk_element_list = each_disk.split(",")
-            disk["backend"] = disk_element_list[0].lstrip("file:").lstrip("phy:")
-            disk["frontend"] = disk_element_list[1]
-            disk["permission"] = disk_element_list[2]
-            volume_list.append(disk)
+        if 'disk' in dir(vm_cfg):
+            for each_disk in vm_cfg.disk:
+                disk = {}
+                disk_element_list = each_disk.split(",")
+                disk["backend"] = disk_element_list[0].lstrip("file:").lstrip("phy:")
+                disk["frontend"] = disk_element_list[1]
+                disk["permission"] = disk_element_list[2]
+                volume_list.append(disk)
 
         network_list = []
-        for each_vif in vm_cfg.vif:
-            vif = {}
-            vif_element_list = each_vif.split(",")
-            #default
-            vif["type"] = 'netfront'
-            vif["bridge"] = 'xenbr0'
-            vif["mac"] = None
-            for kv in vif_element_list:
-                kv_list = kv.split("=")
-                key = kv_list[0].strip()
-                value = kv_list[1].strip()
-                if (key == "type"):
-                    vif["type"] = value
-                elif (key == "bridge"):
-                    vif["bridge"] = value
-                elif (key == "mac"):
-                    vif["mac"] = value
-                else:
-                    break
-            network_list.append(vif)
+        if 'vif' in dir(vm_cfg):
+            for each_vif in vm_cfg.vif:
+                vif = {}
+                vif_element_list = each_vif.split(",")
+                #default
+                vif["type"] = 'netfront'
+                vif["bridge"] = 'xenbr0'
+                vif["mac"] = None
+                for kv in vif_element_list:
+                    kv_list = kv.split("=")
+                    key = kv_list[0].strip()
+                    value = kv_list[1].strip()
+                    if (key == "type"):
+                        vif["type"] = value
+                    elif (key == "bridge"):
+                        vif["bridge"] = value
+                    elif (key == "mac"):
+                        vif["mac"] = value
+                    else:
+                        break
+                network_list.append(vif)
         self.vm_cfg = vm_cfg
         self.volume_list = volume_list
         self.network_list = network_list
