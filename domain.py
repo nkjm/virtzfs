@@ -34,12 +34,14 @@ class Domain:
         self.extract_vm_cfg("/%s/%s/%s/vm_cfg.py" % (repository_root, dir_domain, self.name))
 
     def extract_vm_cfg(self, vm_cfg_path):
+        if 'vm_cfg' in sys.modules:
+            del(sys.modules['vm_cfg'])
         if not (os.path.isfile(vm_cfg_path)):
             print "Specified domain configuration file does not exist. Exiting... "
             return(1)
         sys.path.append(os.path.dirname(vm_cfg_path))
         import vm_cfg
-        reload(vm_cfg)
+        #reload(vm_cfg)
         sys.path.remove(os.path.dirname(vm_cfg_path))
 
         volume_list = []
