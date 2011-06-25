@@ -49,10 +49,13 @@ class Domain:
             for each_disk in vm_cfg.disk:
                 disk = {}
                 disk_element_list = each_disk.split(",")
-                disk["backend"] = disk_element_list[0].lstrip("file:").lstrip("phy:")
-                disk["frontend"] = disk_element_list[1]
-                disk["permission"] = disk_element_list[2]
-                volume_list.append(disk)
+                if disk_element_list[1] == 'hdc:cdrom':
+                    continue
+                else:
+                    disk["backend"] = disk_element_list[0].lstrip("file:").lstrip("phy:")
+                    disk["frontend"] = disk_element_list[1]
+                    disk["permission"] = disk_element_list[2]
+                    volume_list.append(disk)
 
         network_list = []
         if 'vif' in dir(vm_cfg):
@@ -123,11 +126,17 @@ class Domain:
                 prop_list.remove(exclude)
 
         for prop in prop_list:
-            self.new_vm_cfg.append("%s = '%s'\n" % (prop, getattr(self.vm_cfg, prop)))
+            if prop == 'vif_other_config' or prop == 'vfb':
+                self.new_vm_cfg.append("%s = %s\n" % (prop, getattr(self.vm_cfg, prop)))
+            else:
+                self.new_vm_cfg.append("%s = '%s'\n" % (prop, getattr(self.vm_cfg, prop)))
 
         self.new_vm_cfg.append("disk = [\n")
         for volume in self.volume_list:
-            self.new_vm_cfg.append("'phy:%s,%s,%s',\n" % (volume["backend"], volume["frontend"], volume["permission"]))
+            if volume['frontend'] == 'hdc:cdrom':
+                continue
+            else:
+                self.new_vm_cfg.append("'phy:%s,%s,%s',\n" % (volume["backend"], volume["frontend"], volume["permission"]))
         self.new_vm_cfg.append("]\n")
 
         self.new_vm_cfg.append("vif = [\n")
