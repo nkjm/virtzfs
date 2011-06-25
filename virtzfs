@@ -1284,7 +1284,7 @@ class Virtzfs:
             # skip if volume is shareddisk
             if volume["permission"] != "w!":
                 print "Re-creating LUN for '%s'... " % volume["frontend"],
-                cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%(domain_zfs_path)s/%(frontend)s" % {"domain_zfs_path":domain.zfs_path,"frontend":volume["frontend"]}
+                cmd = "pfexec /usr/sbin/stmfadm create-lu /dev/zvol/rdsk/%(domain_zfs_path)s/%(frontend)s > /dev/null 2>&1" % {"domain_zfs_path":domain.zfs_path,"frontend":volume["frontend"]}
                 res = os.system(cmd)
                 if res == 0:
                     print msg_success
